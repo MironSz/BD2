@@ -70,11 +70,13 @@ public:
         } else if (type == "FO") {//FINISH ORDER
             int id_zamowienia = lastCreatedOrder;
             work W(C);
-            W.exec("SELECT uczynZamowienie(" + to_string(id_zamowienia) + ")");
+            result R(W.exec("SELECT uczynZamowienie(" + to_string(id_zamowienia) + ")"));
+            cout <<"Cost of your order "<<R.front()[0]<<" bon apetit :)\n";
             W.commit();
         } else if (type == "D") {//DELIVER
             work W(C);
             W.exec("UPDATE Skladnik SET ilosc = ilosc+10");
+            W.commit();
         } else if (type == "M") {//MENU
             work W(C);
             result r = W.exec("SELECT nazwa_pizzy,id_pizzy FROM Pizze;");
@@ -85,13 +87,16 @@ public:
         } else if (type == "KI") { //gives klient id, may add him
             char name[100],surname[100];
             sscanf(args.c_str(),"%99s %99s" ,&name,&surname);
-            nontransaction N(C);
-            result r(N.exec("SELECT (id_klienta) FROM Klient WHERE imie = '"+string(name)+"' AND nazwisko = '"+string(surname)+"';"));
-            N.close();
+
+            work W(C);
+            result r(W.exec("SELECT (id_klienta) FROM Klient WHERE imie = '"+string(name)+"' AND nazwisko = '"+string(surname)+"';"));
             if(r.empty()){
-                work W(C);
                 W.exec("INSERT INTO Klient (imie,nazwisko) VALUES ('"+string(name)+"','"+string(surname)+"');");
+                result r2(W.exec("SELECT (id_klienta) FROM Klient WHERE imie = '"+string(name)+"' AND nazwisko = '"+string(surname)+"';"));
+                swap(r,r2);
+                W.commit();
             }
+            cout <<"client "<<name<<" "<<surname<<" has id: " << r.front()[0]<<endl;
 
         } else if (type == "END") {
             shouldContinueVar = false;
