@@ -18,20 +18,25 @@ private:
     string port = "5432";
     int lastCreatedOrder = -1;
     connection C;
+    bool shouldContinueVar = true;
 
 //    connection C("dbname = " + dbname + " user = " + user + " password = " + password + " hostaddr = " + hostadrr +" port = " + port);
 //    pqxx::connection C(port);
-//    work W(C);
+    shared_ptr <work> currentOrder;
 public:
     State() : C("postgres://hnmgputi:fA9vDEgP8zRS5VSGn1GIlTWIYylJB0HS@dumbo.db.elephantsql.com:5432/hnmgputi") {};
 
     bool shouldContinue() {
-        return true;
+        return shouldContinueVar;
     }
 
     void doRealAction(string type, string args) {
-        if (type == "NO") {//NEW ORDER
+        if (type == "NO") {//NEW ORDer
             int id_klienta;
+            {
+                nontransaction N(C);
+                result r(N.exec("SELECT czyscZamowienia();"));
+            }
             sscanf(args.c_str(), "%d", &id_klienta);
             {
                 work W(C);
@@ -41,34 +46,35 @@ public:
             }
             {
                 nontransaction N(C);
-//            result r = W.exec("SELECT id_klienta from KLIENT WHERE udane = false;");
-                result r(N.exec("SELECT id_klienta from KLIENT WHERE udane = false;"));
+                result r(N.exec("SELECT Zamowienie.id_zamowienia from KLIENT JOIN Zamowienie On "
+                                        "Klient.id_klienta = Zamowienie.id_klienta WHERE udane = false;"));
                 lastCreatedOrder = (r.front())[0].as<int>();
+                cout << "Order initiated succesfuly, your order's id is: " << lastCreatedOrder << endl;
             }
         } else if (type == "AO") { //ADD TO ORDER
             work W(C);
-            int id_zamowienia, ilosc, id_pizzy;
-            sscanf(&args[0], "%d %d %d", &id_zamowienia, &id_pizzy, &ilosc);
-            W.exec(string("INSERT INTO PolaczeniaPizzaZamowienie (id_zamowienia,id_pizzy,ilosc)"
+            int id_zamowienia = lastCreatedOrder, ilosc, id_pizzy;
+            sscanf(&args[0], "%d %d", &id_pizzy, &ilosc);
+            printf("   (id_pizzy = %d, ilosc = %d)\n", id_pizzy, ilosc);
+            W.exec(string("INSERT INTO PolaczaniePizzaZamowienie (id_zamowienia,id_pizzy,ilosc)"
                                   "VALUES (") + to_string(id_zamowienia) + string(",") + to_string(id_pizzy)
                    + string(",") + to_string(ilosc) + string(");"));
+
             result r = W.exec(string("SELECT sprawdzSkladniki(") + to_string(id_zamowienia) + string(");"));
-            //TODO sprawdz to
             if (r.front()[0].as<bool>() == false) {
-                W.exec("DELETE from PolaczeniePizzaZamowienie WHERE id_zamowienia = " + to_string(id_zamowienia)
-                       + " AND id_pizzy = " + to_string(id_pizzy) + ";");
-            } else{
                 W.abort();
+                cout << "Sorry, we do not have enough ingredients :(\n";
+            } else {
+                W.commit();
             }
         } else if (type == "FO") {//FINISH ORDER
-            int id_zamowienia;
+            int id_zamowienia = lastCreatedOrder;
             work W(C);
-            sscanf(&args[0], "%d", &id_zamowienia);
             W.exec("SELECT uczynZamowienie(" + to_string(id_zamowienia) + ")");
             W.commit();
         } else if (type == "D") {//DELIVER
             work W(C);
-            W.exec("UPDATE Skladniki SET ilosc = ilosc+10");
+            W.exec("UPDATE Skladnik SET ilosc = ilosc+10");
         } else if (type == "M") {//MENU
             work W(C);
             result r = W.exec("SELECT nazwa_pizzy,id_pizzy FROM Pizze;");
@@ -77,21 +83,43 @@ public:
             }
 
         } else if (type == "KI") { //gives klient id, may add him
-
+            char name[100],surname[100];
+            sscanf(args.c_str(),"%99s %99s" ,&name,&surname);
+            nontransaction N(C);
+            result r(N.exec("SELECT (id_klienta) FROM Klient WHERE imie = '"+string(name)+"' AND nazwisko = '"+string(surname)+"';"));
+            N.close();
+            if(r.empty()){
+                work W(C);
+                W.exec("INSERT INTO Klient (imie,nazwisko) VALUES ('"+string(name)+"','"+string(surname)+"');");
+            }
 
         } else if (type == "END") {
+            shouldContinueVar = false;
 
         } else if (type == "H") {
+            cout << "Those are available commends:\n" << "[H]-list all commends\n"
+                 << "[NO c]-begin new order for client c, will abort unfinished orders\n"
+                 << "[AO p n]-adds n pizzas of type p to current order\n"
+                 << "[FO]-finishes current order\n"
+                 << "[KI name surname]-gives id of client, adds him to database if he is not in it\n"
+                 << "[END]-close aplication\n" << "[MENU]-displays menu\n\n\n";
 
+        } else if(type == "MENU"){
+            nontransaction N(C);
+            result r(N.exec("SELECT * FROM Pizza;"));
+            cout<<"id   name   prize(in PLN)\n";
+            for(auto raw : r){
+                cout<<raw[0].as<int>()<<" "<<raw[1].as<string>() <<"   "<<raw[2]<<endl;
+            }
+        } else{
+            cout <<"unknown command :(\n";
         }
     }
 
     void doAction(string line) {
         char type[30], args[30];
 
-        sscanf(line.c_str(), "%s %s", type, args);
-        printf("((%s,%s))\n", type, args);
-        cout << "type: (" << type << ") args: (" << args << ")\n";
+        sscanf(line.c_str(), "%s %[^\n]s", type, args);
         doRealAction(string(type), string(args));
     }
 

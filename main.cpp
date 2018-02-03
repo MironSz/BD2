@@ -25,11 +25,10 @@ int main() {
 
     State state1;
     while(state1.shouldContinue()){
-        cout <<"Type command (type H for help)\n";
+        cout <<"Type command (type H for help)\n\n";
         string line;
         string type;
         getline(cin,line);
-        cout <<"["+line+"]\n";
         state1.doAction(line);
     }
     return 0;
